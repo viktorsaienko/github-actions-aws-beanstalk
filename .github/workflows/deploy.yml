@@ -1,0 +1,60 @@
+name: Deploy Flask App to AWS Elastic Beanstalk
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+    # 1. Скачиваем код
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # 2. Упаковываем Flask приложение в zip (без папки .github)
+    - name: Generate deployment package
+      run: |
+        zip -r deploy_package.zip application.py requirements.txt
+
+    # 3. Настраиваем доступы AWS
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+        aws-region: eu-west-1
+
+    # 4. Получаем имя автоматически созданного S3 бакета Beanstalk
+    # (В ТЗ указано, что он начинается на 'elasticbeanstalk-')
+    - name: Get Beanstalk S3 Bucket Name
+      id: s3-bucket
+      run: |
+        BUCKET_NAME=$(aws s3 api list-buckets --query "Buckets[?starts_with(Name, 'elasticbeanstalk-')].Name" --output text | awk '{print $1}')
+        echo "Found bucket: $BUCKET_NAME"
+        echo "bucket_name=$BUCKET_NAME" >> $GITHUB_OUTPUT
+
+    # 5. Загружаем архив в S3
+    - name: Upload package to S3
+      run: |
+        aws s3 cp deploy_package.zip s3://${{ steps.s3-bucket.outputs.bucket_name }}/deploy_package-${{ github.sha }}.zip
+
+    # 6. Регистрируем новую версию приложения в Elastic Beanstalk
+    - name: Create Beanstalk Application Version
+      run: |
+        aws elasticbeanstalk create-application-version \
+          --application-name cmtr-z53rb65y-app \
+          --version-label "ver-${{ github.sha }}" \
+          --source-bundle S3Bucket="${{ steps.s3-bucket.outputs.bucket_name }}",S3Key="deploy_package-${{ github.sha }}.zip"
+
+    # 7. Обновляем окружение Beanstalk на новую версию
+    - name: Update Beanstalk Environment
+      run: |
+        aws elasticbeanstalk update-environment \
+          --environment-name cmtr-z53rb65y-env \
+          --version-label "ver-${{ github.sha }}"
+
