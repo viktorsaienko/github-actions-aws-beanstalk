@@ -34,7 +34,7 @@ jobs:
     - name: Get Beanstalk S3 Bucket Name
       id: s3-bucket
       run: |
-        BUCKET_NAME=$(aws s3 api list-buckets --query "Buckets[?starts_with(Name, 'elasticbeanstalk-')].Name" --output text | awk '{print $1}')
+        BUCKET_NAME=$(aws s3 ls | grep 'elasticbeanstalk' | grep 'eu-west-1' | awk '{print $3}' | head -n 1)
         echo "Found bucket: $BUCKET_NAME"
         echo "bucket_name=$BUCKET_NAME" >> $GITHUB_OUTPUT
 
